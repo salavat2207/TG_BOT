@@ -62,6 +62,19 @@ async def main():
     await db.connect()
     logger.info("Подключение к базе данных установлено")
 
+    # Проверяем и загружаем данные, если таблицы пустые
+    try:
+        data_exists = await db.check_data_exists()
+        if not data_exists:
+            logger.info("Таблицы пустые, начинаю загрузку данных...")
+            from setup_db import load_json_to_db
+            await load_json_to_db()
+            logger.info("Данные успешно загружены")
+        else:
+            logger.info("Данные уже есть в базе данных")
+    except Exception as e:
+        logger.warning(f"Не удалось проверить/загрузить данные: {e}. Продолжаю запуск бота.")
+
     try:
         # Очищаем webhook, если он был установлен (для избежания конфликтов)
         await bot.delete_webhook(drop_pending_updates=True)

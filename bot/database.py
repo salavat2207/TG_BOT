@@ -52,6 +52,12 @@ class Database:
             """)
             return bool(result)
 
+    async def check_data_exists(self) -> bool:
+        """Проверяет, есть ли данные в таблице videos."""
+        async with self.pool.acquire() as conn:
+            count = await conn.fetchval("SELECT COUNT(*) FROM videos")
+            return count > 0
+
     async def init_tables_if_needed(self):
         """Инициализирует таблицы, если их нет."""
         try:
