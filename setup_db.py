@@ -1,4 +1,3 @@
-"""Скрипт для полной настройки базы данных: миграции и загрузка данных."""
 import asyncio
 import json
 import os
@@ -17,7 +16,6 @@ def parse_database_url(database_url: str):
     if not database_url:
         raise ValueError("DATABASE_URL не установлен")
     
-    # Удаляем префикс postgresql:// или postgres://
     if database_url.startswith("postgresql://"):
         database_url = database_url.replace("postgresql://", "http://", 1)
     elif database_url.startswith("postgres://"):
@@ -30,7 +28,7 @@ def parse_database_url(database_url: str):
         "password": parsed.password,
         "host": parsed.hostname,
         "port": parsed.port or 5432,
-        "database": parsed.path.lstrip("/").split("?")[0],  # Убираем параметры запроса
+        "database": parsed.path.lstrip("/").split("?")[0],  
     }
 
 
@@ -44,7 +42,6 @@ async def init_database():
     
     print(f"Подключение к базе данных {params['database']}...")
     
-    # Подключаемся к базе данных напрямую (на Render БД уже создана)
     conn = await asyncpg.connect(
         user=params["user"],
         password=params["password"],
@@ -97,7 +94,6 @@ async def load_json_to_db():
         videos = data.get("videos", [])
         print(f"Найдено видео: {len(videos)}")
 
-        # Очищаем таблицы
         await conn.execute("TRUNCATE TABLE video_snapshots CASCADE")
         await conn.execute("TRUNCATE TABLE videos CASCADE")
         print("Все таблицы очищены")
@@ -180,7 +176,6 @@ async def main():
     print("=" * 50)
     
     try:
-        # Шаг 1: Инициализация (миграции)
         print("\n[1/2] Выполнение миграций...")
         await init_database()
         
