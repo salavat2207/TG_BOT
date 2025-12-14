@@ -1,11 +1,34 @@
 """Модуль для работы с базой данных PostgreSQL."""
 import os
 from typing import Optional
+from urllib.parse import urlparse
 
 import asyncpg
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def parse_database_url(database_url: str):
+    """Парсит DATABASE_URL и возвращает параметры подключения."""
+    if not database_url:
+        raise ValueError("DATABASE_URL не установлен")
+    
+    # Удаляем префикс postgresql:// или postgres://
+    if database_url.startswith("postgresql://"):
+        database_url = database_url.replace("postgresql://", "http://", 1)
+    elif database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "http://", 1)
+    
+    parsed = urlparse(database_url)
+    
+    return {
+        "user": parsed.username,
+        "password": parsed.password,
+        "host": parsed.hostname,
+        "port": parsed.port or 5432,
+        "database": parsed.path.lstrip("/").split("?")[0],  # Убираем параметры запроса
+    }
 
 
 class Database:
@@ -18,20 +41,16 @@ class Database:
         """Создает пул подключений к базе данных."""
         database_url = os.getenv("DATABASE_URL")
         if not database_url:
-            raise ValueError("DATABASE_URL не установлен в .env файле")
+            raise ValueError("DATABASE_URL не установлен в переменных окружения")
 
-        parts = database_url.replace("postgresql://", "").split("/")
-        db_name = parts[1]
-        auth_host = parts[0].split("@")
-        user_pass = auth_host[0].split(":")
-        host_port = auth_host[1].split(":")
+        params = parse_database_url(database_url)
 
         self.pool = await asyncpg.create_pool(
-            user=user_pass[0],
-            password=user_pass[1],
-            database=db_name,
-            host=host_port[0],
-            port=int(host_port[1]) if len(host_port) > 1 else 5432,
+            user=params["user"],
+            password=params["password"],
+            database=params["database"],
+            host=params["host"],
+            port=params["port"],
             min_size=1,
             max_size=10,
         )
