@@ -39,7 +39,7 @@ docker-compose up
 
 - Для локального запуска используйте: `postgresql://postgres:postgres@localhost:5433/video_analytics`
 - Для Render используйте Internal Database URL из настроек PostgreSQL
-- Убедитесь, что в `.env` есть `TELEGRAM_BOT_TOKEN` и `GROQ_API_KEY`
+- Убедитесь, что в `.env` есть `TELEGRAM_BOT_TOKEN` и `GEMINI_API_KEY`
 
 ## Проверка работы
 
