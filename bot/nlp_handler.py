@@ -101,6 +101,66 @@ SQL: SELECT COUNT(DISTINCT video_id) FROM video_snapshots WHERE DATE(created_at)
 
 Теперь преобразуй следующий вопрос в SQL:"""
 
+    def _handle_api_error(self, error: Exception) -> None:
+        """Обрабатывает ошибки API и выбрасывает понятные исключения."""
+        error_str = str(error)
+        error_lower = error_str.lower()
+        
+        # Обработка ошибок лимитов
+        if "insufficient_quota" in error_lower or "429" in error_str:
+            raise ValueError(
+                f"Превышен лимит запросов к {self.provider.upper()} API. "
+                f"Проверьте лимиты на https://console.groq.com/" if self.provider == "groq" else "Проверьте лимиты на https://platform.openai.com/"
+            )
+        # Обработка ошибок аутентификации
+        elif "invalid_api_key" in error_lower or "401" in error_str or "authentication" in error_lower:
+            provider_name = "Groq" if self.provider == "groq" else "OpenAI"
+            raise ValueError(
+                f"Неверный API ключ {provider_name}. Проверьте:\n"
+                f"1. Правильность ключа в .env файле ({self.provider.upper()}_API_KEY=...)\n"
+                f"2. Что ключ скопирован полностью без пробелов\n"
+                f"3. Получите новый ключ на https://console.groq.com/keys" if self.provider == "groq" else "3. Получите новый ключ на https://platform.openai.com/api-keys"
+            )
+        # Обработка ошибки 403 Forbidden
+        elif "403" in error_str or "forbidden" in error_lower:
+            if self.provider == "groq":
+                raise ValueError(
+                    "Доступ запрещен (403 Forbidden) к Groq API. Возможные причины:\n"
+                    "1. Неверный API ключ - проверьте правильность в .env\n"
+                    "2. Модель недоступна - попробуйте другую модель\n"
+                    "3. Превышен лимит доступа - проверьте на https://console.groq.com/\n"
+                    "4. Аккаунт заблокирован - свяжитесь с поддержкой Groq\n\n"
+                    "Проверьте доступные модели: https://console.groq.com/docs/models"
+                )
+            else:
+                raise ValueError(
+                    "Доступ запрещен (403 Forbidden) к OpenAI API. Проверьте:\n"
+                    "1. Правильность API ключа\n"
+                    "2. Лимиты и доступность на https://platform.openai.com/"
+                )
+        # Обработка устаревших моделей
+        elif "model_decommissioned" in error_lower or ("model" in error_lower and "decommissioned" in error_lower):
+            raise ValueError(
+                f"Модель {self.provider} устарела или недоступна. "
+                f"Перезапустите бота. Если ошибка сохраняется, проверьте доступные модели на "
+                f"https://console.groq.com/docs/models" if self.provider == "groq" else "https://platform.openai.com/docs/models"
+            )
+        # Обработка недоступности модели
+        elif "model_not_found" in error_lower or "does not exist" in error_lower:
+            raise ValueError(
+                f"Модель '{self.model}' не найдена в {self.provider.upper()}. "
+                f"Проверьте доступные модели и обновите код."
+            )
+        # Общая обработка ошибок
+        else:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Ошибка API ({self.provider}): {error_str}")
+            raise ValueError(
+                f"Ошибка при обработке запроса ({self.provider}): {error_str}\n"
+                f"Проверьте настройки API ключа и доступность сервиса."
+            )
+
     async def text_to_sql(self, user_query: str) -> str:
         """
         Преобразует текстовый запрос на русском языке в SQL.
@@ -151,65 +211,5 @@ SQL: SELECT COUNT(DISTINCT video_id) FROM video_snapshots WHERE DATE(created_at)
                     logger.warning(f"Пробуем альтернативную модель Groq: {self.model}")
                     continue
                 
-                # Если не удалось переключиться или это не ошибка модели - пробрасываем дальше
-                raise
-
-        except Exception as e:
-            error_str = str(e)
-            error_lower = error_str.lower()
-            
-            # Обработка ошибок лимитов
-            if "insufficient_quota" in error_lower or "429" in error_str:
-                raise ValueError(
-                    f"Превышен лимит запросов к {self.provider.upper()} API. "
-                    f"Проверьте лимиты на https://console.groq.com/" if self.provider == "groq" else "Проверьте лимиты на https://platform.openai.com/"
-                )
-            # Обработка ошибок аутентификации
-            elif "invalid_api_key" in error_lower or "401" in error_str or "authentication" in error_lower:
-                provider_name = "Groq" if self.provider == "groq" else "OpenAI"
-                raise ValueError(
-                    f"Неверный API ключ {provider_name}. Проверьте:\n"
-                    f"1. Правильность ключа в .env файле ({self.provider.upper()}_API_KEY=...)\n"
-                    f"2. Что ключ скопирован полностью без пробелов\n"
-                    f"3. Получите новый ключ на https://console.groq.com/keys" if self.provider == "groq" else "3. Получите новый ключ на https://platform.openai.com/api-keys"
-                )
-            # Обработка ошибки 403 Forbidden
-            elif "403" in error_str or "forbidden" in error_lower:
-                if self.provider == "groq":
-                    raise ValueError(
-                        "Доступ запрещен (403 Forbidden) к Groq API. Возможные причины:\n"
-                        "1. Неверный API ключ - проверьте правильность в .env\n"
-                        "2. Модель недоступна - попробуйте другую модель\n"
-                        "3. Превышен лимит доступа - проверьте на https://console.groq.com/\n"
-                        "4. Аккаунт заблокирован - свяжитесь с поддержкой Groq\n\n"
-                        "Проверьте доступные модели: https://console.groq.com/docs/models"
-                    )
-                else:
-                    raise ValueError(
-                        "Доступ запрещен (403 Forbidden) к OpenAI API. Проверьте:\n"
-                        "1. Правильность API ключа\n"
-                        "2. Лимиты и доступность на https://platform.openai.com/"
-                    )
-            # Обработка устаревших моделей
-            elif "model_decommissioned" in error_lower or ("model" in error_lower and "decommissioned" in error_lower):
-                raise ValueError(
-                    f"Модель {self.provider} устарела или недоступна. "
-                    f"Перезапустите бота. Если ошибка сохраняется, проверьте доступные модели на "
-                    f"https://console.groq.com/docs/models" if self.provider == "groq" else "https://platform.openai.com/docs/models"
-                )
-            # Обработка недоступности модели
-            elif "model_not_found" in error_lower or "does not exist" in error_lower:
-                raise ValueError(
-                    f"Модель '{self.model}' не найдена в {self.provider.upper()}. "
-                    f"Проверьте доступные модели и обновите код."
-                )
-            # Общая обработка ошибок
-            else:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f"Ошибка API ({self.provider}): {error_str}")
-                raise ValueError(
-                    f"Ошибка при обработке запроса ({self.provider}): {error_str}\n"
-                    f"Проверьте настройки API ключа и доступность сервиса."
-                )
-#
+                # Если не удалось переключиться или это не ошибка модели - обрабатываем ошибку
+                self._handle_api_error(e)
