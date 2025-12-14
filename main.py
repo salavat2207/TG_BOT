@@ -22,8 +22,13 @@ async def health_check(request):
 async def load_data_endpoint(request):
     """Endpoint для загрузки данных в БД (только для инициализации)."""
     try:
+        logger.info("Начало загрузки данных через HTTP endpoint...")
         await load_json_to_db()
-        return web.json_response({"status": "success", "message": "Данные загружены успешно"})
+        logger.info("Данные загружены успешно")
+        return web.json_response({
+            "status": "success", 
+            "message": "Данные загружены успешно. Бот готов к работе!"
+        })
     except Exception as e:
         logger.error(f"Ошибка загрузки данных: {e}", exc_info=True)
         return web.json_response(
@@ -49,7 +54,9 @@ def create_app():
     app = web.Application()
     app.router.add_get("/", health_check)
     app.router.add_get("/health", health_check)
-    app.router.add_post("/load-data", load_data_endpoint)  # Endpoint для загрузки данных
+    # Endpoint для загрузки данных (GET и POST для удобства)
+    app.router.add_get("/load-data", load_data_endpoint)
+    app.router.add_post("/load-data", load_data_endpoint)
     
     app.on_startup.append(init_bot)
     app.on_cleanup.append(cleanup_bot)
