@@ -22,6 +22,8 @@
 4. Скопируйте строку подключения (формат: `postgresql://user:password@host:port/database`)
 5. **Сохраните эту строку** - это будет значение переменной `DATABASE_URL`
 
+**Важно:** Не публикуйте строку подключения в репозитории! Она содержит пароль.
+
 **Пример:**
 ```
 postgresql://user:password@dpg-xxxxx-a.oregon-postgres.render.com/video_analytics
