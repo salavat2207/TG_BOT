@@ -13,18 +13,32 @@ class NLPHandler:
 
     def __init__(self):
         groq_api_key = os.getenv("GROQ_API_KEY")
+        openai_api_key = os.getenv("OPENAI_API_KEY")
         
+        # Приоритет: Groq (бесплатный), затем OpenAI
         if groq_api_key:
             self.client = AsyncOpenAI(
                 api_key=groq_api_key,
                 base_url="https://api.groq.com/openai/v1"
             )
-            self.model = "llama-3.3-70b-versatile"
+            # Список моделей для переключения при ошибках
+            self.groq_models = [
+                "llama-3.1-70b-versatile",  # Основная модель
+                "llama-3.3-70b-versatile",  # Альтернатива
+                "llama-3.1-8b-instant",     # Быстрая модель
+            ]
+            self.model = self.groq_models[0]
+            self.model_index = 0
             self.provider = "groq"
+        elif openai_api_key:
+            self.client = AsyncOpenAI(api_key=openai_api_key)
+            self.model = "gpt-4o-mini"
+            self.provider = "openai"
         else:
             raise ValueError(
-                "Необходимо установить GROQ_API_KEY в .env файле.\n"
-                "Получите бесплатный ключ на https://console.groq.com/"
+                "Необходимо установить GROQ_API_KEY или OPENAI_API_KEY в .env файле.\n"
+                "Groq (бесплатный): https://console.groq.com/\n"
+                "OpenAI: https://platform.openai.com/api-keys"
             )
 
         self.system_prompt = """Ты - эксперт по SQL и анализу данных. Твоя задача - преобразовывать вопросы на русском языке в SQL запросы для PostgreSQL.
@@ -97,50 +111,105 @@ SQL: SELECT COUNT(DISTINCT video_id) FROM video_snapshots WHERE DATE(created_at)
         Returns:
             SQL запрос в виде строки
         """
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_query},
-                ],
-                temperature=0.1,
-                max_tokens=500,
-            )
+        max_retries = 3 if self.provider == "groq" and hasattr(self, 'groq_models') else 1
+        
+        for attempt in range(max_retries):
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": self.system_prompt},
+                        {"role": "user", "content": user_query},
+                    ],
+                    temperature=0.1,
+                    max_tokens=500,
+                )
 
-            sql_query = response.choices[0].message.content.strip()
+                sql_query = response.choices[0].message.content.strip()
 
-            sql_query = re.sub(r"```sql\n?", "", sql_query)
-            sql_query = re.sub(r"```\n?", "", sql_query)
-            sql_query = sql_query.strip()
+                sql_query = re.sub(r"```sql\n?", "", sql_query)
+                sql_query = re.sub(r"```\n?", "", sql_query)
+                sql_query = sql_query.strip()
 
-            if sql_query.endswith(";"):
-                sql_query = sql_query[:-1]
+                if sql_query.endswith(";"):
+                    sql_query = sql_query[:-1]
 
-            return sql_query
+                return sql_query
+            except Exception as e:
+                error_str = str(e)
+                error_lower = error_str.lower()
+                
+                # Если ошибка связана с моделью и есть альтернативные модели - пробуем следующую
+                if (self.provider == "groq" and hasattr(self, 'groq_models') and 
+                    attempt < max_retries - 1 and 
+                    ("403" in error_str or "forbidden" in error_lower or 
+                     "model_not_found" in error_lower or "does not exist" in error_lower)):
+                    self.model_index = (self.model_index + 1) % len(self.groq_models)
+                    self.model = self.groq_models[self.model_index]
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Пробуем альтернативную модель Groq: {self.model}")
+                    continue
+                
+                # Если не удалось переключиться или это не ошибка модели - пробрасываем дальше
+                raise
 
         except Exception as e:
             error_str = str(e)
-            if "insufficient_quota" in error_str or "429" in error_str:
+            error_lower = error_str.lower()
+            
+            # Обработка ошибок лимитов
+            if "insufficient_quota" in error_lower or "429" in error_str:
                 raise ValueError(
-                    "Превышен лимит запросов к Groq API. "
-                    "Проверьте лимиты на https://console.groq.com/"
+                    f"Превышен лимит запросов к {self.provider.upper()} API. "
+                    f"Проверьте лимиты на https://console.groq.com/" if self.provider == "groq" else "Проверьте лимиты на https://platform.openai.com/"
                 )
-            elif "invalid_api_key" in error_str or "401" in error_str or "authentication" in error_str.lower():
+            # Обработка ошибок аутентификации
+            elif "invalid_api_key" in error_lower or "401" in error_str or "authentication" in error_lower:
+                provider_name = "Groq" if self.provider == "groq" else "OpenAI"
                 raise ValueError(
-                    "Неверный API ключ Groq. Проверьте:\n"
-                    "1. Правильность ключа в .env файле (GROQ_API_KEY=...)\n"
-                    "2. Что ключ скопирован полностью без пробелов\n"
-                    "3. Получите новый ключ на https://console.groq.com/keys"
+                    f"Неверный API ключ {provider_name}. Проверьте:\n"
+                    f"1. Правильность ключа в .env файле ({self.provider.upper()}_API_KEY=...)\n"
+                    f"2. Что ключ скопирован полностью без пробелов\n"
+                    f"3. Получите новый ключ на https://console.groq.com/keys" if self.provider == "groq" else "3. Получите новый ключ на https://platform.openai.com/api-keys"
                 )
-            elif "model_decommissioned" in error_str or ("model" in error_str.lower() and "decommissioned" in error_str.lower()):
+            # Обработка ошибки 403 Forbidden
+            elif "403" in error_str or "forbidden" in error_lower:
+                if self.provider == "groq":
+                    raise ValueError(
+                        "Доступ запрещен (403 Forbidden) к Groq API. Возможные причины:\n"
+                        "1. Неверный API ключ - проверьте правильность в .env\n"
+                        "2. Модель недоступна - попробуйте другую модель\n"
+                        "3. Превышен лимит доступа - проверьте на https://console.groq.com/\n"
+                        "4. Аккаунт заблокирован - свяжитесь с поддержкой Groq\n\n"
+                        "Проверьте доступные модели: https://console.groq.com/docs/models"
+                    )
+                else:
+                    raise ValueError(
+                        "Доступ запрещен (403 Forbidden) к OpenAI API. Проверьте:\n"
+                        "1. Правильность API ключа\n"
+                        "2. Лимиты и доступность на https://platform.openai.com/"
+                    )
+            # Обработка устаревших моделей
+            elif "model_decommissioned" in error_lower or ("model" in error_lower and "decommissioned" in error_lower):
                 raise ValueError(
-                    "Модель Groq устарела. Код обновлен на актуальную модель. "
-                    "Перезапустите бота. Если ошибка сохраняется, проверьте доступные модели на https://console.groq.com/docs/models"
+                    f"Модель {self.provider} устарела или недоступна. "
+                    f"Перезапустите бота. Если ошибка сохраняется, проверьте доступные модели на "
+                    f"https://console.groq.com/docs/models" if self.provider == "groq" else "https://platform.openai.com/docs/models"
                 )
+            # Обработка недоступности модели
+            elif "model_not_found" in error_lower or "does not exist" in error_lower:
+                raise ValueError(
+                    f"Модель '{self.model}' не найдена в {self.provider.upper()}. "
+                    f"Проверьте доступные модели и обновите код."
+                )
+            # Общая обработка ошибок
             else:
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.error(f"Ошибка API ({self.provider}): {error_str}")
-                raise ValueError(f"Ошибка при обработке запроса: {error_str}")
+                raise ValueError(
+                    f"Ошибка при обработке запроса ({self.provider}): {error_str}\n"
+                    f"Проверьте настройки API ключа и доступность сервиса."
+                )
 #
