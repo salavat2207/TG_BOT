@@ -1,5 +1,7 @@
 """Модуль для работы с базой данных PostgreSQL."""
+import logging
 import os
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -7,6 +9,8 @@ import asyncpg
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 def parse_database_url(database_url: str):
@@ -37,6 +41,37 @@ class Database:
     def __init__(self):
         self.pool: Optional[asyncpg.Pool] = None
 
+    async def check_tables_exist(self) -> bool:
+        """Проверяет, существуют ли таблицы в БД."""
+        async with self.pool.acquire() as conn:
+            result = await conn.fetchval("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'videos'
+                );
+            """)
+            return bool(result)
+
+    async def init_tables_if_needed(self):
+        """Инициализирует таблицы, если их нет."""
+        if await self.check_tables_exist():
+            logger.info("Таблицы уже существуют в базе данных")
+            return
+
+        logger.info("Таблицы не найдены, выполняется инициализация...")
+        migration_file = Path(__file__).parent.parent / "migrations" / "001_create_tables.sql"
+        
+        if not migration_file.exists():
+            logger.error(f"Файл миграции не найден: {migration_file}")
+            raise FileNotFoundError(f"Файл миграции не найден: {migration_file}")
+
+        async with self.pool.acquire() as conn:
+            with open(migration_file, "r", encoding="utf-8") as f:
+                sql = f.read()
+                await conn.execute(sql)
+        
+        logger.info("Миграция выполнена успешно, таблицы созданы")
+
     async def connect(self):
         """Создает пул подключений к базе данных."""
         database_url = os.getenv("DATABASE_URL")
@@ -54,6 +89,9 @@ class Database:
             min_size=1,
             max_size=10,
         )
+        
+        # Автоматическая инициализация таблиц при подключении
+        await self.init_tables_if_needed()
 
     async def disconnect(self):
         """Закрывает пул подключений."""

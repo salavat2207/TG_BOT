@@ -4,6 +4,7 @@ import os
 from aiohttp import web
 
 from bot.bot import main as bot_main
+from setup_db import load_json_to_db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,6 +17,19 @@ logger = logging.getLogger(__name__)
 async def health_check(request):
     """Health check endpoint для Render Web Service."""
     return web.json_response({"status": "ok", "service": "telegram-bot"})
+
+
+async def load_data_endpoint(request):
+    """Endpoint для загрузки данных в БД (только для инициализации)."""
+    try:
+        await load_json_to_db()
+        return web.json_response({"status": "success", "message": "Данные загружены успешно"})
+    except Exception as e:
+        logger.error(f"Ошибка загрузки данных: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500
+        )
 
 
 async def init_bot(app):
@@ -35,6 +49,7 @@ def create_app():
     app = web.Application()
     app.router.add_get("/", health_check)
     app.router.add_get("/health", health_check)
+    app.router.add_post("/load-data", load_data_endpoint)  # Endpoint для загрузки данных
     
     app.on_startup.append(init_bot)
     app.on_cleanup.append(cleanup_bot)
