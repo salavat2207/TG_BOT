@@ -21,11 +21,12 @@ class NLPHandler:
                 api_key=groq_api_key,
                 base_url="https://api.groq.com/openai/v1"
             )
-            # Список моделей для переключения при ошибках
+            # Список моделей для переключения при ошибках (актуальные модели Groq)
             self.groq_models = [
-                "llama-3.1-70b-versatile",  # Основная модель
-                "llama-3.3-70b-versatile",  # Альтернатива
-                "llama-3.1-8b-instant",     # Быстрая модель
+                "llama-3.1-70b-versatile",      # Основная модель (70B, 128k context)
+                "llama-3.1-8b-instant",        # Быстрая модель (8B, 128k context)
+                "llama-3-groq-70b-tool-use",   # Для продвинутого использования инструментов
+                "llama-3-groq-8b-tool-use",    # Быстрая модель с поддержкой инструментов
             ]
             self.model = self.groq_models[0]
             self.model_index = 0
