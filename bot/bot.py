@@ -63,6 +63,10 @@ async def main():
     logger.info("Подключение к базе данных установлено")
 
     try:
+        # Очищаем webhook, если он был установлен (для избежания конфликтов)
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook очищен, запускаем polling")
+        
         await dp.start_polling(bot)
     finally:
         await db.disconnect()
