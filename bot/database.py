@@ -54,23 +54,32 @@ class Database:
 
     async def init_tables_if_needed(self):
         """Инициализирует таблицы, если их нет."""
-        if await self.check_tables_exist():
-            logger.info("Таблицы уже существуют в базе данных")
-            return
+        try:
+            tables_exist = await self.check_tables_exist()
+            if tables_exist:
+                logger.info("Таблицы уже существуют в базе данных")
+                return
 
-        logger.info("Таблицы не найдены, выполняется инициализация...")
-        migration_file = Path(__file__).parent.parent / "migrations" / "001_create_tables.sql"
-        
-        if not migration_file.exists():
-            logger.error(f"Файл миграции не найден: {migration_file}")
-            raise FileNotFoundError(f"Файл миграции не найден: {migration_file}")
+            logger.info("Таблицы не найдены, выполняется инициализация...")
+            migration_file = Path(__file__).parent.parent / "migrations" / "001_create_tables.sql"
+            
+            if not migration_file.exists():
+                logger.error(f"Файл миграции не найден: {migration_file}")
+                logger.error(f"Текущая директория: {Path.cwd()}")
+                logger.error(f"Директория скрипта: {Path(__file__).parent.parent}")
+                raise FileNotFoundError(f"Файл миграции не найден: {migration_file}")
 
-        async with self.pool.acquire() as conn:
-            with open(migration_file, "r", encoding="utf-8") as f:
-                sql = f.read()
-                await conn.execute(sql)
-        
-        logger.info("Миграция выполнена успешно, таблицы созданы")
+            logger.info(f"Чтение миграции из {migration_file}...")
+            async with self.pool.acquire() as conn:
+                with open(migration_file, "r", encoding="utf-8") as f:
+                    sql = f.read()
+                    logger.info("Выполнение SQL миграции...")
+                    await conn.execute(sql)
+            
+            logger.info("Миграция выполнена успешно, таблицы созданы")
+        except Exception as e:
+            logger.error(f"Ошибка при инициализации таблиц: {e}", exc_info=True)
+            raise
 
     async def connect(self):
         """Создает пул подключений к базе данных."""
